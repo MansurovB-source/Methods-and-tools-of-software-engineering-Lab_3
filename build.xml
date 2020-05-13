@@ -1,0 +1,193 @@
+<project name="mispi3" default="info" basedir=".">
+
+    <property file="build.properties"/>
+    <exec executable="svn" outputproperty="revisions">
+        <arg line="info ."/>
+    </exec>
+    <exec executable="grep" inputstring="${revisions}" outputproperty="revision">
+        <arg line="'Revision:'"/>
+    </exec>
+    <exec executable="awk" inputstring="${revision}" outputproperty="revNumber">
+        <arg line="'{print $2}'"/>
+    </exec>
+    <propertyfile file="${extra}">
+        <entry key="svn.revision" value="${revNumber}"/>
+    </propertyfile>
+    <loadproperties srcFile="${extra}"/>
+
+    <path id="classpath">
+        <path location="${lib.dir}">
+            <fileset dir="${lib.dir}" includes="**/*.jar"/>
+        </path>
+    </path>
+    <path id="application" location="${build.artifacts.dir}/MiSPI_3.jar"/>
+    <path id="build.Test.classes" location="build/MiSPI3/Test"/>
+    <path id="build.Main.classes" location="build/MiSPI3/Main"/>
+    <property name="javac1.8" location="/usr/local/bin/javac18"/>
+    <property name="java1.8" location="/usr/local/bin/java18"/>
+
+    <target name="info" description="info">
+        <echo>if you need help call the command 'help'</echo>
+    </target>
+
+    <target name="help" description="help to users">
+        <echo>
+            'compile': Compile java sources
+            'build': Generate executable jar file
+            'run': Run program
+            'clean': Delete previous build results
+            'music': Play music upon completion of the build (build goal)
+            'test': Running tests
+            'history': if the target failed to compile (the compilation target),
+            the previous version is loaded from the svn repository.
+            The operation is repeated until the best revision from
+            the repository is received. If such a revision is found,
+            then a file is generated containing the result of the
+            operation, the differences(diff) for all files.
+        </echo>
+    </target>
+
+    <target name="make.build.dirs">
+        <mkdir dir="${build.dir}"/>
+        <mkdir dir="${build.dir}/MiSPI3"/>
+        <mkdir dir="${build.artifacts.dir}"/>
+        <mkdir dir="${test-log.dir}"/>
+        <mkdir dir="${svn.dir}"/>
+        <mkdir dir="${svn-co.dir}"/>
+    </target>
+
+    <target name="compile" description="Compile java" depends="make.build.dirs">
+        <loadproperties srcFile="${extra}"/>
+        <local name="compile.fail"/>
+        <javac
+                executable="${javac1.8}"
+                fork="true"
+                classpathref="classpath"
+                srcdir="${src.dir}"
+                destdir="${build.MiSPI3.dir}"
+                includeantruntime="false"
+                errorProperty="compile.fail"
+                failonerror="false"
+        >
+        </javac>
+
+        <!--<echo message="${compile.fail}"/>-->
+        <copy todir="${build.MiSPI3.META-INF.dir}" failonerror="false">
+            <fileset dir="${persistence.dir}"/>
+        </copy>
+
+        <condition property="build.fail">
+            <equals arg1="${compile.fail}" arg2="true"/>
+        </condition>
+        <condition property="build.successful">
+            <not>
+                <equals arg1="${compile.fail}" arg2="true"/>
+            </not>
+        </condition>
+        <propertyfile file="${extra}">
+            <entry key="compile.fail" value="false"/>
+        </propertyfile>
+    </target>
+
+
+    <target name="build" description="Generates executable jar file" depends="compile">
+        <jar destfile="${build.artifacts.dir}/MiSPI_3.jar">
+            <manifest>
+                <attribute name="Version" value="${version.jdk}"/>
+                <attribute name="Built-By" value="Behruz and Amir"/>
+                <attribute name="Main-Class" value="Main.Main"/>
+            </manifest>
+            <fileset dir="${build.MiSPI3.dir}">
+                <include name="**/*"/>
+            </fileset>
+        </jar>
+    </target>
+
+    <target name="run" description="Run program" depends="build">
+        <java fork="true" classname="Main.Main" jvm="${java1.8}" taskname="java18">
+            <classpath>
+                <path refid="classpath"/>
+                <path refid="application"/>
+            </classpath>
+        </java>
+    </target>
+
+    <target name="test" description="Run tests">
+        <junit fork="true" haltonfailure="false" printsummary="true" jvm="${java1.8}">
+            <classpath>
+                <path refid="classpath"/>
+                <path refid="application"/>
+                <path refid="build.Test.classes"/>
+                <path refid="build.Main.classes"/>
+            </classpath>
+
+            <test name="Test.AreaTest" todir="${test-log.dir}">
+                <formatter type="plain"/>
+                <formatter type="xml"/>
+            </test>
+            <test name="Test.DBTest" todir="${test-log.dir}">
+                <formatter type="plain"/>
+                <formatter type="xml"/>
+            </test>
+        </junit>
+    </target>
+
+    <target name="music" description="play music upon completion of the build (build goal)" depends="build">
+        <sound>
+            <success source="${sound.dir}"/>
+        </sound>
+    </target>
+
+    <target name="clean">
+        <delete dir="build"/>
+        <delete dir="${test-log.dir}"/>
+        <delete dir="${svn.dir}"/>
+    </target>
+
+    <target name="FromSvn" description="Download revision from svn repository" unless="build.successful">
+        <echo message="The compilation failed. Loading revision number ${svn.revision}"/>
+        <exec executable="svn" failonerror="true">
+            <arg line="up -r ${svn.revision}"/>
+        </exec>
+        <antcall target="history">
+            <param name="svn.revision" value="${svn.revision}"/>
+        </antcall>
+    </target>
+
+    <target name="history" description="history" depends="compile" if="build.fail">
+        <condition property="no_revisions">
+            <equals arg1="${svn.revision}" arg2="0"/>
+        </condition>
+        <fail if="no_revisions">
+            No more revisions
+        </fail>
+        <antcall target="diff">
+            <param name="svn.revision" value="${svn.revision}"/>
+        </antcall>
+        <propertyfile file="${extra}">
+            <entry key="svn.revision" value="${svn.revision}"/>
+        </propertyfile>
+        <propertyfile file="${extra}">
+            <entry key="svn.revision" type="int" operation="-" value="1"/>
+        </propertyfile>
+        <local name="svn.revision"/>
+        <loadproperties srcFile="${extra}"/>
+        <antcall target="FromSvn" >
+            <param name="svn.revision" value="${svn.revision}"/>
+        </antcall>
+    </target>
+
+    <target name="diff" description="make diff" if="build.successful">
+        <propertyfile file="${extra}" >
+            <entry key="svn.revision.next" value="${svn.revision}"/>
+        </propertyfile>
+        <propertyfile file="${extra}">
+            <entry key="svn.revision.next" type="int" operation="+" value="1"/>
+        </propertyfile>
+        <loadproperties srcFile="${extra}"/>
+        <echo message="Dif between ${svn.revision} and ${svn.revision.next} revisions"/>
+        <exec executable="svn" output="${svn_diff}" failonerror="false">
+            <arg line="diff -r ${svn.revision}:${svn.revision.next}"/>
+        </exec>
+    </target>
+</project>
