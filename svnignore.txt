@@ -1,0 +1,13 @@
+# Build dirs
+build
+svn
+tests-log
+sound
+out
+lib
+.idea
+
+# Properties files
+extra.properties
+build.properties
+build.xml
